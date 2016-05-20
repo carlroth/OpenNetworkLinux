@@ -28,7 +28,7 @@ clean:
 	rm -rf $(BUILDROOT_ARCHDIRS)
 
 
-setup: setup-pyroute2 setup-dnspython setup-libyaml setup-pyyaml setup-jq setup-pyparted
+setup: setup-pyroute2 setup-dnspython setup-libyaml setup-pyyaml setup-jq setup-pyparted setup-shyaml setup-setuptools
 	cp $(wildcard patches/busybox*.patch) $(BUILDROOT_SOURCE)/package/busybox/
 	cp $(wildcard patches/kexec*.patch) $(BUILDROOT_SOURCE)/package/kexec/
 	sed -i 's%^DOSFSTOOLS_SITE =.*%DOSFSTOOLS_SITE = http://downloads.openwrt.org/sources%' $(BUILDROOT_SOURCE)/package/dosfstools/dosfstools.mk
@@ -76,6 +76,21 @@ setup-pyparted:
 	sed -i '/[/]python-pyparted[/]/d' $(BUILDROOT_SOURCE)/package/Config.in
 	sed -i '/[/]python-setuptools[/]/a\source "package/python-pyparted/Config.in"' $(BUILDROOT_SOURCE)/package/Config.in
 
+setup-shyaml:
+	mkdir -p $(BUILDROOT_SOURCE)/package/python-shyaml
+	cp patches/python-shyaml.mk $(BUILDROOT_SOURCE)/package/python-shyaml/python-shyaml.mk
+	cp patches/python-shyaml.Config.in $(BUILDROOT_SOURCE)/package/python-shyaml/Config.in
+	cp patches/shyaml*.tar.gz $(BUILDROOT_SOURCE)/dl/.
+	sed -i '/[/]python-shyaml[/]/d' $(BUILDROOT_SOURCE)/package/Config.in
+	sed -i '/[/]python-setuptools[/]/a\source "package/python-shyaml/Config.in"' $(BUILDROOT_SOURCE)/package/Config.in
+
+# XXX Ugh, I don't have upload rights to github
+setup-setuptools:
+	cp patches/setuptools*.tar.gz $(BUILDROOT_SOURCE)/dl/.
+	sed -i.bak -e '/^PYTHON_SETUPTOOLS_INSTALL_TARGET/d' $(BUILDROOT_SOURCE)/package/python-setuptools/python-setuptools.mk
+	sed -i.bak -e '/^PYTHON_SETUPTOOLS_VERSION/a\PYTHON_SETUPTOOLS_INSTALL_TARGET = YES' $(BUILDROOT_SOURCE)/package/python-setuptools/python-setuptools.mk
+	sed -i.bak -e '/^PYTHON_SETUPTOOLS_INSTALL_STAGING/d' $(BUILDROOT_SOURCE)/package/python-setuptools/python-setuptools.mk
+	sed -i.bak -e '/^PYTHON_SETUPTOOLS_VERSION/a\PYTHON_SETUPTOOLS_INSTALL_STAGING = YES' $(BUILDROOT_SOURCE)/package/python-setuptools/python-setuptools.mk
 
 define buildroot_arch
 buildroot-$(1):
