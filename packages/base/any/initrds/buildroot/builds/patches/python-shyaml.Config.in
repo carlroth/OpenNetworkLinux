@@ -1,0 +1,7 @@
+config BR2_PACKAGE_PYTHON_SHYAML
+       bool "python-shyaml"
+       depends on BR2_PACKAGE_PYTHON
+       depends on BR2_PACKAGE_PYTHON_YAML
+       depends on BR2_PACKAGE_PYTHON_SETUPTOOLS
+       help
+         Include the 'shyaml' Python library
