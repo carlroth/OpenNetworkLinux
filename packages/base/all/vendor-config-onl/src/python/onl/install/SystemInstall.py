@@ -18,6 +18,7 @@ from onl.install.InstallUtils import ProcMountsParser
 from onl.install.ConfUtils import MachineConf, InstallerConf
 from onl.install.ShellApp import Onie, Upgrader
 from onl.install.InstallUtils import SubprocessMixin
+from onl.install.Swi import GetRunner
 import onl.install.App
 
 from onl.sysconfig import sysconfig
@@ -146,11 +147,47 @@ class App(SubprocessMixin):
                     self.log.debug("+ /bin/cp %s %s", src, dst)
                     shutil.copy2(src, dst)
 
+            # preserve the SWI if it's a local SWI install
+
+            swiSpec = swiPath = None
+
             with OnlMountContextReadWrite('ONL-BOOT', logger=self.log) as octx:
                 src = os.path.join(octx.directory, "boot-config")
                 dst = os.path.join(abs_idir, "boot-config")
                 self.log.debug("+ /bin/cp %s %s", src, dst)
                 shutil.copy2(src, dst)
+                with open(src) as fd:
+                    buf = fd.read()
+                    swiLines = [x for x in buf.splitlines(False) if x.startswith('SWI=')]
+                    if swiLines:
+                        _, _, swiSpec = swiLines[-1].partition('=')
+                        self.log.debug("found boot-config SWI %s", swiSpec)
+
+            if os.path.exists("/etc/onl/SWI"):
+                with open("/etc/onl/SWI") as fd:
+                    swiPath = fd.read().rstrip()
+                    self.log.debug("found run-time SWI %s", swiPath)
+
+            # resolve and copy over swiPath if necessary:
+            if (swiSpec.startswith('http://')
+                or swiSpec.startswith('https://')
+                or swiSpec.startswith('ftp://')
+                or swiSpec.startswith('nfs://')
+                or swiSpec.startswith('scp://')
+                or swiSpec.startswith('ssh://')):
+                # not a local SWI install
+                swiBase = swiPath = None
+            else:
+                logger = self.log.getChild("swi")
+                swiget = GetRunner(forceCopy=True, log=logger)
+                swiPath = swiget.get(swiPath)
+
+            if swiPath and os.path.exists(swiPath):
+                dst = os.path.join(abs_idir, os.path.split(swiPath)[1])
+                if swiPath.startswith('/tmp'):
+                    self.rename(swiPath, dst)
+                else:
+                    self.copy2(swiPath, dst)
 
             # chroot to the onl-install script
             ##cmd = ('chroot', ctx.dir,
@@ -166,8 +203,6 @@ class App(SubprocessMixin):
 
     def run(self):
         """XXX roth -- migrate this to onl.install.App.App
-
-        XXX roth -- assume TMPDIR=/tmp.
         """
 
         pm = ProcMountsParser()
