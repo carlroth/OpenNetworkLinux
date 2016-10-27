@@ -1,8 +1,6 @@
-#!/usr/bin/python
+"""Swi.py
 
-"""swiget
-
-Retrieve/resolve a SWI file to the local filesystem path.
+Helper functions for dealing with SWI specifiers.
 """
 
 import sys, os
@@ -16,10 +14,10 @@ import re
 import json
 import zipfile
 
-import onl.install.InstallUtils
-MountContext = onl.install.InstallUtils.MountContext
-BlkidParser = onl.install.InstallUtils.BlkidParser
-ProcMountsParser = onl.install.InstallUtils.ProcMountsParser
+import InstallUtils
+MountContext = InstallUtils.MountContext
+BlkidParser = InstallUtils.BlkidParser
+ProcMountsParser = InstallUtils.ProcMountsParser
 
 import onl.mounts
 OnlMountManager = onl.mounts.OnlMountManager
@@ -119,11 +117,12 @@ def swiSortKey(swiPath):
     # else, use the filesytem mtime, which is less reliable
     return os.path.getmtime(swiPath)
 
-class Runner(onl.install.InstallUtils.SubprocessMixin):
+class GetRunner(InstallUtils.SubprocessMixin):
 
-    def __init__(self, log):
+    def __init__(self, log, forceCopy=False):
         self.log = log
 
+        self.forceCopy = forceCopy
         self.nextUpdate = None
 
     def reporthook(self, blocks, bsz, sz):
@@ -137,11 +136,27 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
             sys.stderr.write("downloading ... %s\r" % icon)
 
     def get(self, SWI):
+        """Resolve the SWI specifier to a real file path.
+
+        Set forceCopy=True to ensure that the real file path is
+        writable/temporary.
+        """
+
+        def _dstPath(swi):
+            root, base = os.path.split(swi)
+            l, s, r = base.partition('?')
+            if s: base = l
+            if base and base.endswith('.swi'):
+                return "/tmp/%s" % base
+            else:
+                return tempfile.mktemp(prefix="swiget-", suffix=".swi")
 
         # XXX lots of fixups required here for proper IPv6 support
-        if SWI.startswith('http://') or SWI.startswith('ftp://'):
+        if (SWI.startswith('http://')
+            or SWI.startswith('https://')
+            or SWI.startswith('ftp://')):
             self.log.info("retrieving %s via HTTP/FTP", SWI)
-            dst = tempfile.mktemp(prefix="swiget-", suffix=".swi")
+            dst = _dstPath(SWI)
             if os.isatty(sys.stdout.fileno()):
                 dst, headers = urllib.urlretrieve(SWI, dst, self.reporthook)
             else:
@@ -149,7 +164,10 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
             sys.stderr.write("\n")
             return dst
 
-        if SWI.startswith('scp://') or SWI.startswith('ssh://'):
+        # XXX roth -- support openssh too?
+        hasDropbear = os.path.exists('/usr/bin/dbclient')
+        if ((SWI.startswith('scp://') or SWI.startswith('ssh://'))
+            and hasDropbear):
             buf = SWI[6:]
             h, sep, r = buf.partition('/')
             if not sep:
@@ -166,9 +184,32 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
             env.update(os.environ)
             if hinfo.password is not None:
                 env['DROPBEAR_PASSWORD'] = hinfo.password
-            dst = tempfile.mktemp(prefix="swiget-", suffix=".swi")
+            dst = _dstPath(SWI)
             with open(dst, "w") as fd:
                 self.check_call(cmd, stdout=fd, env=env)
+            return dst
+
+        if ((SWI.startswith('scp://') or SWI.startswith('ssh://'))
+            and not hasDropbear):
+            buf = SWI[6:]
+            h, sep, r = buf.partition('/')
+            if not sep:
+                self.log.error("invalid SWI %s", SWI)
+                return None
+            hinfo = HostInfo.fromString(h)
+            rcmd = "cat /%s" % r
+            cmd = ['ssh', hinfo.host, rcmd,]
+            if hinfo.port is not None:
+                cmd[2:2] = ['-p', str(hinfo.port),]
+            if hinfo.user is not None:
+                cmd[2:2] = ['-l', hinfo.user,]
+            env = {}
+            env.update(os.environ)
+            if hinfo.password is not None:
+                self.log.warn("please re-enter password when prompted...")
+            dst = _dstPath(SWI)
+            with open(dst, "w") as fd:
+                self.check_call(cmd, stdout=fd)
             return dst
 
         if SWI.startswith('tftp://'):
@@ -179,7 +220,7 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
                 return None
             hinfo = HostInfo.fromString(h)
             port = hinfo.port or 69
-            dst = tempfile.mktemp(prefix="swiget-", suffix=".swi")
+            dst = _dstPath(SWI)
             cmd = ('tftp', '-g', '-r', r, '-l', dst, hinfo.host, str(hinfo.port),)
             self.check_call(cmd)
             return dst
@@ -205,7 +246,7 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
                 cmd[3:3] = ['-o', 'ro,nolock',]
             self.check_call(cmd)
 
-            dst = tempfile.mktemp(prefix="swiget-", suffix=".swi")
+            dst = _dstPath(SWI)
             try:
                 src = "%s/%s" % (mpt, base,)
                 self.copy2(src, dst)
@@ -226,14 +267,14 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
 
             p = "/dev/%s" % devspec
             if os.path.exists(p):
-                return self.blockdevCopy(p, r)
+                return self.blockdevExtract(p, r)
 
             try:
                 part = blkid[devspec]
             except IndexError:
                 part = None
             if part is not None:
-                return self.blockdevCopy(part.device, r)
+                return self.blockdevExtract(part.device, r)
 
             mm = OnlMountManager("/etc/mtab.yml", self.log)
             label = mpt = None
@@ -248,7 +289,7 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
                 except IndexError:
                     part = None
                 if part is not None:
-                    return self.blockdevCopy(part.device, r, dir=mpt)
+                    return self.blockdevExtract(part.device, r, dir=mpt)
 
             self.log.error("cannot find device specifier for %s", SWI)
             return None
@@ -273,12 +314,12 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
                 except IndexError:
                     part = None
                 if part is not None:
-                    return self.blockdevCopy(part.device, path, dir=mpt)
+                    return self.blockdevExtract(part.device, path, dir=mpt)
 
         self.log.error("invalid SWI %s", SWI)
         return None
 
-    def blockdevCopy(self, dev, src, dir=None):
+    def blockdevExtract(self, dev, src, dir=None):
 
         def latest(d):
             l = [x for x in os.listdir(d) if x.endswith('.swi')]
@@ -312,6 +353,14 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
                 self.log.error("missing SWI: %s:%s", dev, src)
                 return None
 
+            if self.forceCopy:
+                if dst.endswith(".swi"):
+                    tdst = "/tmp/%s" % os.path.split(dst)[1]
+                else:
+                    tdst = tempfile.mktemp(prefix="swiget-", suffix=".swi")
+                self.copy2(dst, tdst)
+                return tdst
+
             # move to its proper location as per mtab
             # XXX perms may not be right here
             if dir is not None:
@@ -319,8 +368,7 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
                 ctx.mounted = False
                 return os.path.join(dir, src)
 
-            ctx.mounted = False
-            ctx.hostDir = None
+            ctx.detach()
             return dst
 
     @classmethod
@@ -336,7 +384,7 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
         sys.stdout.write(dst + "\n")
         sys.exit(0)
 
-main = Runner.main
+main = GetRunner.main
 
 if __name__ == "__main__":
     main()

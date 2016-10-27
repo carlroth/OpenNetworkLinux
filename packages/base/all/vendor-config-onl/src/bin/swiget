@@ -1,0 +1,9 @@
+#!/usr/bin/python
+
+"""swiget
+
+Retrieve/resolve a SWI file to the local filesystem path.
+"""
+
+import onl.install.Swi
+onl.install.Swi.main()
