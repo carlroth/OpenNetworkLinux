@@ -106,6 +106,12 @@ class SubprocessMixin:
         else:
             return subprocess.check_output(cmd, *args, cwd=cwd, **kwargs)
 
+    def mv(self, src, dst):
+        self.log.debug("+ /bin/mv %s %s", src, dst)
+        os.rename(src, dst)
+
+    rename = mv
+
     def rmdir(self, path):
         self.log.debug("+ /bin/rmdir %s", path)
         os.rmdir(path)
