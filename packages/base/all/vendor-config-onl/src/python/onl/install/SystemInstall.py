@@ -8,7 +8,6 @@ import os, sys
 import json
 import tempfile
 import zipfile
-import shutil
 import argparse
 import fnmatch
 import subprocess
@@ -66,8 +65,7 @@ class App(SubprocessMixin):
 
             src = os.path.join(self.onieHelper.initrdDir, "etc/machine.conf")
             dst = os.path.join(ctx.dir, "etc/machine.conf")
-            self.log.debug("+ /bin/cp %s %s", src, dst)
-            shutil.copy2(src, dst)
+            self.copy2(src, dst)
 
             h, self.onieHelper = self.onieHelper, None
             if h is not None:
@@ -76,8 +74,7 @@ class App(SubprocessMixin):
             src = "/etc/fw_env.config"
             if os.path.exists(src):
                 dst = os.path.join(ctx.dir, "etc/fw_env.config")
-                self.log.debug("+ /bin/cp %s %s", src, dst)
-                shutil.copy2(src, dst)
+                self.copy2(src, dst)
 
             srcRoot = "/etc/onl"
             dstRoot = os.path.join(ctx.dir, "etc")
@@ -122,8 +119,7 @@ class App(SubprocessMixin):
                     if fnmatch.fnmatch(f, pat):
                         src = os.path.join(sdir, f)
                         dst = os.path.join(abs_idir, f)
-                        self.log.debug("+ /bin/cp %s %s", src, dst)
-                        shutil.copy2(src, dst)
+                        self.copy2(src, dst)
             try:
                 l = sysconfig.upgrade.loader.package.grub
             except AttributeError:
@@ -132,8 +128,7 @@ class App(SubprocessMixin):
                 src = os.path.join(sdir, f)
                 if os.path.exists(src):
                     dst = os.path.join(abs_idir, f)
-                    self.log.debug("+ /bin/cp %s %s", src, dst)
-                    shutil.copy2(src, dst)
+                    self.copy2(src, dst)
 
             # get FIT files from powerpc installs:
             try:
@@ -144,8 +139,7 @@ class App(SubprocessMixin):
                 src = os.path.join(sdir, f)
                 if os.path.exists(src):
                     dst = os.path.join(abs_idir, f)
-                    self.log.debug("+ /bin/cp %s %s", src, dst)
-                    shutil.copy2(src, dst)
+                    self.copy2(src, dst)
 
             # preserve the SWI if it's a local SWI install
 
@@ -154,8 +148,7 @@ class App(SubprocessMixin):
             with OnlMountContextReadWrite('ONL-BOOT', logger=self.log) as octx:
                 src = os.path.join(octx.directory, "boot-config")
                 dst = os.path.join(abs_idir, "boot-config")
-                self.log.debug("+ /bin/cp %s %s", src, dst)
-                shutil.copy2(src, dst)
+                self.copy2(src, dst)
                 with open(src) as fd:
                     buf = fd.read()
                     swiLines = [x for x in buf.splitlines(False) if x.startswith('SWI=')]
