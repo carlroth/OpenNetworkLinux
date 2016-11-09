@@ -83,9 +83,13 @@ class App(SubprocessMixin):
             # constitute an /etc/onl/installer.conf in place
             installerConf = InstallerConf(path="/dev/null")
 
-            with open("/etc/onl/loader/versions.json") as fd:
-                data = json.load(fd)
-                installerConf.onl_version = data['VERSION_ID']
+            vj = "/etc/onl/loader/versions.json"
+            if os.path.exists(vj):
+                with open(vj) as fd:
+                    data = json.load(fd)
+                    installerConf.onl_version = data['VERSION_ID']
+            else:
+                installerConf.onl_version = "unknown"
 
             installerConf.installer_dir = chroot_idir
 
@@ -145,16 +149,22 @@ class App(SubprocessMixin):
 
             swiSpec = swiPath = None
 
-            with OnlMountContextReadWrite('ONL-BOOT', logger=self.log) as octx:
-                src = os.path.join(octx.directory, "boot-config")
-                dst = os.path.join(abs_idir, "boot-config")
-                self.copy2(src, dst)
-                with open(src) as fd:
-                    buf = fd.read()
-                    swiLines = [x for x in buf.splitlines(False) if x.startswith('SWI=')]
-                    if swiLines:
-                        _, _, swiSpec = swiLines[-1].partition('=')
-                        self.log.debug("found boot-config SWI %s", swiSpec)
+            try:
+                with OnlMountContextReadWrite('ONL-BOOT', logger=self.log) as octx:
+                    src = os.path.join(octx.directory, "boot-config")
+
+                    # Disable until a system for boot-config upgrade is implemented.
+                    ##dst = os.path.join(abs_idir, "boot-config")
+                    ##self.copy2(src, dst)
+
+                    with open(src) as fd:
+                        buf = fd.read()
+                        swiLines = [x for x in buf.splitlines(False) if x.startswith('SWI=')]
+                        if swiLines:
+                            _, _, swiSpec = swiLines[-1].partition('=')
+                            self.log.debug("found boot-config SWI %s", swiSpec)
+            except ValueError as ex:
+                self.log.warn("cannot find ONL-BOOT: %s", str(ex))
 
             if os.path.exists("/etc/onl/SWI"):
                 with open("/etc/onl/SWI") as fd:
