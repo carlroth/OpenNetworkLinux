@@ -153,7 +153,8 @@ class App(SubprocessMixin):
                 with OnlMountContextReadWrite('ONL-BOOT', logger=self.log) as octx:
                     src = os.path.join(octx.directory, "boot-config")
 
-                    # Disable until a system for boot-config upgrade is implemented.
+                    # XXX roth -- maybe /etc/onl/boot-config-default
+                    # XXX roth -- potentially un-bootable if default boot-config is missing
                     ##dst = os.path.join(abs_idir, "boot-config")
                     ##self.copy2(src, dst)
 
