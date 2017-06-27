@@ -6,6 +6,150 @@
 #
 ######################################################################
 
+STAT_F_MPT=
+
+stat_f_capture() {
+  local dev dir fsType opts freq passno
+  dev=$1; shift
+  dir=$1; shift
+  fsType=$1; shift
+  opts=$1; shift
+  freq=$1; shift
+  passno=$1; shift
+
+  STAT_F_MPT=$dir
+
+  # readable filesystem type
+  STAT_F_T=$fsType
+
+  # hex filesystem type (fake this)
+  STAT_F_t=$(echo "$fsType" | md5sum | cut -c 1-4)
+
+  # file name
+  STAT_F_n=$rest
+
+  # fundamental block size
+  STAT_F_S=$(blockdev --getbsz "$dev" 2>/dev/null || :)
+  if test "$STAT_F_S"; then
+    :
+  else
+    STAT_F_S=512
+  fi
+
+  # optimal block size
+  STAT_F_s=$STAT_F_S
+  
+  STAT_F_b=
+  STAT_F_f=
+  STAT_F_a=
+  set dummy $(df -P -B $STAT_F_S "$dir" 2>/dev/null | tail -1 || :)
+  if test $# -gt 1; then
+    # total data blocks
+    STAT_F_b=$3
+
+    # free file blocks
+    STAT_F_f=$5
+
+    # free blocks for non-superuser (fake this)
+    STAT_F_a=$5
+  fi
+
+  STAT_F_c=
+  STAT_F_d=
+  set dummy $(df -P -i "$dir" 2>/dev/null | tail -1 || :)
+  if test $# -gt 1; then
+
+    # total inodes
+    STAT_F_c=$3
+
+    # free inodes
+    STAT_F_d=$5
+  fi
+}
+
+stat_f_inner() {
+  local dev dir fsType opts freq passno rest
+  dev=$1; shift
+  dir=$1; shift
+  fsType=$1; shift
+  opts=$1; shift
+  freq=$1; shift
+  passno=$1; shift
+  rest="$@"
+
+  case "$rest" in
+    "$dir"|"$dir"/*)
+      stat_f_capture "$dev" "$dir" "$fsType" "$opts" "$freq" "$passno"
+      return 2
+    ;;
+  esac
+
+  return 0
+}
+
+stat_f_inner_root() {
+  local dev dir fsType opts freq passno rest
+  dev=$1; shift
+  dir=$1; shift
+  fsType=$1; shift
+  opts=$1; shift
+  freq=$1; shift
+  passno=$1; shift
+  rest="$@"
+
+  if test "$dir" = "/"; then
+    :
+  else
+    return 0
+  fi
+
+  stat_f_capture "$dev" "$dir" "$fsType" "$opts" "$freq" "$passno"
+  return 2
+}
+
+stat_f() {
+  local dir opts
+  while test $# -gt 1; do
+    opts=$opts${opts:+" "}"$1"
+    shift
+  done
+  dir=$1; shift
+
+  STAT_F_MPT=
+
+  visit_proc_mounts stat_f_inner $dir
+
+  # special logic to match top-level mounts
+  if test -z "$STAT_F_MPT"; then
+    visit_proc_mounts stat_f_inner_root $dir
+  fi
+  
+  if test "$STAT_F_MPT"; then
+    echo "stat_f: found mount $STAT_F_MPT for $dir" 1>&2
+
+    opts=$(echo "$opts" | sed -e "s|%t|${STAT_F_t}|")
+    opts=$(echo "$opts" | sed -e "s|%T|${STAT_F_T}|")
+
+    opts=$(echo "$opts" | sed -e "s|%n|${STAT_F_n}|")
+
+    opts=$(echo "$opts" | sed -e "s|%s|${STAT_F_s}|")
+    opts=$(echo "$opts" | sed -e "s|%S|${STAT_F_S}|")
+
+    opts=$(echo "$opts" | sed -e "s|%b|${STAT_F_b}|")
+    opts=$(echo "$opts" | sed -e "s|%f|${STAT_F_f}|")
+    opts=$(echo "$opts" | sed -e "s|%a|${STAT_F_a}|")
+
+    opts=$(echo "$opts" | sed -e "s|%c|${STAT_F_c}|")
+    opts=$(echo "$opts" | sed -e "s|%d|${STAT_F_d}|")
+
+    stat $opts $STAT_F_MPT
+    return 0
+  fi
+
+  echo "stat_f: *** cannot find mount point for $dir" 1>&2
+  return 1
+}
+
 installer_reboot() {
   local dummy sts timeout trapsts
   if test $# -gt 0; then
@@ -91,7 +235,7 @@ installer_mkchroot() {
     if test -d "$rdir"; then
       mkdir "${rootdir}${rdir}"
       d2=$(stat -c "%D" $rdir)
-      t2=$(stat -f -c "%T" $rdir)
+      t2=$(stat_f -c "%T" $rdir)
       case "$t2" in
         tmpfs|ramfs)
           # skip tmpfs, we'll just inherit the initrd ramfs
